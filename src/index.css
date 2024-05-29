@@ -103,6 +103,20 @@ body{
   padding: 30px;
   background-color: hsl(310, 47%, 90%);
   box-shadow: 0 4px 8px hwb(0 96% 3% / 0.5);
+  
+
+}
+
+.pathways .docBar .Doc{
+
+  color: hsl(311, 92%, 49%);
+  font-size: 20px;
+  font-weight: 600;
+  margin: 10px 0;
+  text-align: center;
+  border-radius: 20px;
+  border-width: 10px;
+
 
 }
 .pathways h2{
