@@ -8,7 +8,7 @@ const Navbar = () => {
                 <a href="/tutor" style={{
                     color: 'white',
                     backgroundColor: '#f1356d',
-                    borderRadius: '9px'
+                    borderRadius: '8px'
                 
                 }}>Tutor</a>
             </div>
