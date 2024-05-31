@@ -1,9 +1,11 @@
 import streamlit as st 
 from langchain_core.messages import AIMessage, HumanMessage
 import requests
+import os
 
 API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
-headers = {"Authorization": "Bearer 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"}
+api_key = os.environ.get('API_KEY')
+headers = {"Authorization": f"Bearer {api_key}"}
 
 def query(payload):
 	response = requests.post(API_URL, headers=headers, json=payload)
