@@ -1,11 +1,25 @@
 import streamlit as st 
 from langchain_core.messages import AIMessage, HumanMessage
+import requests
 
+API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
+headers = {"Authorization": "Bearer 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"}
 
+def query(payload):
+	response = requests.post(API_URL, headers=headers, json=payload)
+	return response.json()
 
 def get_response(user_query):
-    response = "How can I help you today?"
+    input_prompt = "act as a professor for a course in "+option+" for "+str(duration_option)+" months with expertise in "+expertise+" "+user_query
+    output = query({
+        "inputs": input_prompt,
+    })
+    
+    response = output[0]['generated_text']
+    response = response[len(input_prompt):]
+    
     return response
+
 
 
 #app config

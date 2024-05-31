@@ -1,11 +1,26 @@
 import streamlit as st 
 from langchain_core.messages import AIMessage, HumanMessage
+import requests
 
+API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
+headers = {"Authorization": "Bearer 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"}
 
+def query(payload):
+	response = requests.post(API_URL, headers=headers, json=payload)
+	return response.json()
+	
 
+#get response from the model
 def get_response(user_query):
-    response = "How can I help you today?"
+    
+    output = query({
+        "inputs": user_query,
+    })
+    response = output
+    print(response)
     return response
+
+
 #app config
 st.set_page_config(page_title="Get tutored for your coding skills", page_icon="🤖")
 st.title("Coding Tutor")

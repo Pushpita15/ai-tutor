@@ -119,6 +119,30 @@ body{
 
 
 }
+.pathways .codeBar .Code{
+
+  color: hsl(311, 92%, 49%);
+  font-size: 20px;
+  font-weight: 600;
+  margin: 10px 0;
+  text-align: center;
+  border-radius: 20px;
+  border-width: 10px;
+
+
+}
+.pathways .profBar .Profs{
+
+  color: hsl(311, 92%, 49%);
+  font-size: 20px;
+  font-weight: 600;
+  margin: 10px 0;
+  text-align: center;
+  border-radius: 20px;
+  border-width: 10px;
+
+
+}
 .pathways h2{
   margin-top: 50px;
   text-align: center;

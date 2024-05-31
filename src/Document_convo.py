@@ -39,12 +39,12 @@ else:
         
     #split into chunks
     text_splitter = CharacterTextSplitter(
-        seperator="\n",
+        separator="\n",
         chunk_size=1000,
         chunk_overlap=200,
         length_function=len
     )
-    chunks = text_splitter.split(text)
+    chunks = text_splitter.split_text(text)
     
     #creating embeddings
     embeddings = OpenAIEmbeddings()
