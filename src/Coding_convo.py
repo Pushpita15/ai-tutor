@@ -1,64 +1,113 @@
-import streamlit as st 
-from langchain_core.messages import AIMessage, HumanMessage
-import requests
-import os
+import streamlit as st
+import datetime
+import sqlite3
+from transformers import GPT2LMHeadModel, GPT2Tokenizer
 
-API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
-api_key = os.environ.get('API_KEY')
-headers = {"Authorization": f"Bearer {api_key}"}
+# Load GPT-2 model and tokenizer
+model_name = 'gpt2-medium'
+model = GPT2LMHeadModel.from_pretrained(model_name)
+tokenizer = GPT2Tokenizer.from_pretrained(model_name)
 
-def query(payload):
-	response = requests.post(API_URL, headers=headers, json=payload)
-	return response.json()
-	
+# Database connection
+conn = sqlite3.connect('study_plan.db')
+c = conn.cursor()
 
-#get response from the model
-def get_response(user_query):
-    
-    output = query({
-        "inputs": user_query,
-    })
-    response = output
-    print(response)
-    return response
+# Create tables if they do not exist
+c.execute('''CREATE TABLE IF NOT EXISTS plans
+             (language TEXT, plan TEXT)''')
+c.execute('''CREATE TABLE IF NOT EXISTS progress
+             (language TEXT, current_day INTEGER, start_date TEXT)''')
+c.execute('''CREATE TABLE IF NOT EXISTS chat_history
+             (language TEXT, day INTEGER, explanation TEXT)''')
 
+conn.commit()
 
-#app config
-st.set_page_config(page_title="Get tutored for your coding skills", page_icon="🤖")
-st.title("Coding Tutor")
+def generate_text(prompt, max_length=200):
+    inputs = tokenizer.encode(prompt, return_tensors='pt')
+    outputs = model.generate(inputs, max_length=max_length, num_return_sequences=1)
+    text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    return text
 
-#sidebar
-with st.sidebar:
-    
-    option = st.selectbox(
-    "Enter your preferred programming language",
-    ("C", "C++", "Python","Java"))
-    
-    
-if option is None or option == "":
-    st.info("Please select a programming language")
-else: 
-    if "chat_hist" not in st.session_state:
-        st.session_state.chat_hist = [
-            AIMessage("Hello! I am your coding tutor. How can I help you today?")
-        ]
-    user_query  = st.chat_input("Type your message here...")
-    if user_query is not None and user_query != "":
-        response = get_response(user_query)
-        st.session_state.chat_hist.append(HumanMessage(user_query)) 
-        st.session_state.chat_hist.append(AIMessage(response))
-        
+def generate_study_plan(language, time_frame, level):
+    prompt = f"Generate a {time_frame}-day study plan for learning {language} at {level} level."
+    return generate_text(prompt)
 
-    #conversation
-    for msg in st.session_state.chat_hist:
-        if isinstance(msg, AIMessage):
-            with st.chat_message("AI"):
-                st.write(msg.content)
-        else:
-            with st.chat_message("Human"):
-                st.write(msg.content)
+def explain_topic(topic):
+    prompt = f"Explain the topic '{topic}' in detail with examples and code snippets."
+    return generate_text(prompt)
 
+def store_plan(language, plan):
+    c.execute("INSERT INTO plans (language, plan) VALUES (?, ?)", (language, plan))
+    conn.commit()
 
+def retrieve_plan(language):
+    c.execute("SELECT plan FROM plans WHERE language = ?", (language,))
+    result = c.fetchone()
+    return result[0] if result else None
 
+def store_progress(language, current_day, start_date):
+    c.execute("INSERT INTO progress (language, current_day, start_date) VALUES (?, ?, ?)", (language, current_day, start_date))
+    conn.commit()
 
+def update_progress(language, current_day):
+    c.execute("UPDATE progress SET current_day = ? WHERE language = ?", (current_day, language))
+    conn.commit()
 
+def retrieve_progress(language):
+    c.execute("SELECT current_day, start_date FROM progress WHERE language = ?", (language,))
+    result = c.fetchone()
+    return result if result else (None, None)
+
+def store_chat_history(language, day, explanation):
+    c.execute("INSERT INTO chat_history (language, day, explanation) VALUES (?, ?, ?)", (language, day, explanation))
+    conn.commit()
+
+def retrieve_chat_history(language):
+    c.execute("SELECT day, explanation FROM chat_history WHERE language = ?", (language,))
+    return c.fetchall()
+
+st.sidebar.title("Study Plan Generator")
+language = st.sidebar.text_input("Enter the language you want to study")
+time_frame = st.sidebar.number_input("Enter the number of days for the plan", min_value=1, max_value=365)
+level = st.sidebar.selectbox("Select your level", ["Beginner", "Intermediate", "Advanced"])
+
+if st.sidebar.button("Generate Plan"):
+    existing_plan = retrieve_plan(language)
+    if not existing_plan:
+        plan = generate_study_plan(language, time_frame, level)
+        store_plan(language, plan)
+        store_progress(language, 1, datetime.datetime.now().strftime("%Y-%m-%d"))
+        st.sidebar.success(f"Plan for {language} generated!")
+    else:
+        st.sidebar.info(f"Plan for {language} already exists.")
+
+st.title("Your Study Plan")
+
+current_day, start_date = retrieve_progress(language)
+
+if current_day:
+    st.header(f"Plan for {language}")
+    plan = retrieve_plan(language).split("\n")
+    st.subheader(f"Day {current_day}: {plan[current_day - 1]}")
+
+    if st.button("Explain Today's Topic"):
+        topic = plan[current_day - 1]
+        explanation = explain_topic(topic)
+        store_chat_history(language, current_day, explanation)
+        st.write(explanation)
+
+    if st.button("Next Day"):
+        update_progress(language, current_day + 1)
+        st.experimental_rerun()
+else:
+    st.write("Generate a study plan to get started.")
+
+st.sidebar.title("Chat History")
+
+if st.sidebar.button("Load Chat History"):
+    chat_history = retrieve_chat_history(language)
+    if chat_history:
+        for day, explanation in chat_history:
+            st.sidebar.write(f"Day {day}: {explanation}")
+    else:
+        st.sidebar.write("No chat history found.")
