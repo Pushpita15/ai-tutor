@@ -1,127 +1,125 @@
-from dotenv import load_dotenv
 import streamlit as st
-from PyPDF2 import PdfReader
+from streamlit_chat import message
+from langchain.chains import ConversationalRetrievalChain
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.llms import CTransformers
+from langchain.llms import Replicate
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
-from langchain.chains.question_answering import load_qa_chain
-from langchain.llms import OpenAI
-from langchain.callbacks import get_openai_callback
+from langchain.memory import ConversationBufferMemory
+from langchain.document_loaders import PyPDFLoader
+from langchain.document_loaders import TextLoader
+from langchain.document_loaders import Docx2txtLoader
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 import os
+from dotenv import load_dotenv
+import tempfile
+
+
+load_dotenv()
+
+
+def initialize_session_state():
+    if 'history' not in st.session_state:
+        st.session_state['history'] = []
+
+    if 'generated' not in st.session_state:
+        st.session_state['generated'] = ["Hello! Ask me anything about 🤗"]
+
+    if 'past' not in st.session_state:
+        st.session_state['past'] = ["Hey! 👋"]
+
+def conversation_chat(query, chain, history):
+    result = chain({"question": query, "chat_history": history})
+    history.append((query, result["answer"]))
+    return result["answer"]
+
+def display_chat_history(chain):
+    reply_container = st.container()
+    container = st.container()
+
+    with container:
+        with st.form(key='my_form', clear_on_submit=True):
+            user_input = st.text_input("Question:", placeholder="Ask about your Documents", key='input')
+            submit_button = st.form_submit_button(label='Send')
+
+        if submit_button and user_input:
+            with st.spinner('Generating response...'):
+                output = conversation_chat(user_input, chain, st.session_state['history'])
+
+            st.session_state['past'].append(user_input)
+            st.session_state['generated'].append(output)
+
+    if st.session_state['generated']:
+        with reply_container:
+            for i in range(len(st.session_state['generated'])):
+                message(st.session_state["past"][i], is_user=True, key=str(i) + '_user', avatar_style="thumbs")
+                message(st.session_state["generated"][i], key=str(i), avatar_style="fun-emoji")
+
+def create_conversational_chain(vector_store):
+    load_dotenv()
+    # Create llm
+    #llm = CTransformers(model="llama-2-7b-chat.ggmlv3.q4_0.bin",
+                        #streaming=True, 
+                        #callbacks=[StreamingStdOutCallbackHandler()],
+                        #model_type="llama", config={'max_new_tokens': 500, 'temperature': 0.01})
+    llm = Replicate(
+        streaming = True,
+        model = "replicate/llama-2-70b-chat:58d078176e02c219e11eb4da5a02a7830a283b14cf8f94537af893ccff5ee781", 
+        callbacks=[StreamingStdOutCallbackHandler()],
+        input = {"temperature": 0.01, "max_length" :500,"top_p":1})
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+    chain = ConversationalRetrievalChain.from_llm(llm=llm, chain_type='stuff',
+                                                 retriever=vector_store.as_retriever(search_kwargs={"k": 2}),
+                                                 memory=memory)
+    return chain
 
 def main():
     load_dotenv()
-    print(os.environ.get("OPENAI_API_KEY"))
-    st.set_page_config(page_title="Ask your PDF")
-    st.header("Ask your PDF 💬")
-    
-    # upload file
-    pdf = st.file_uploader("Upload your PDF", type="pdf")
-    
-    # extract the text
-    if pdf is not None:
-      pdf_reader = PdfReader(pdf)
-      text = ""
-      for page in pdf_reader.pages:
-        text += page.extract_text()
-        
-      # split into chunks
-      text_splitter = CharacterTextSplitter(
-        separator="\n",
-        chunk_size=1000,
-        chunk_overlap=200,
-        length_function=len
-      )
-      chunks = text_splitter.split_text(text)
-      
-      # create embeddings
-      embeddings = OpenAIEmbeddings()
-      knowledge_base = FAISS.from_texts(chunks, embeddings)
-      
-      # show user input
-      user_question = st.text_input("Ask a question about your PDF:")
-      if user_question:
-        docs = knowledge_base.similarity_search(user_question)
-        
-        llm = OpenAI()
-        chain = load_qa_chain(llm, chain_type="stuff")
-        with get_openai_callback() as cb:
-          response = chain.run(input_documents=docs, question=user_question)
-          print(cb)
-           
-        st.write(response)
-    
+    # Initialize session state
+    initialize_session_state()
+    st.title("Chat with your Document 📄")
+    # Initialize Streamlit
+    st.sidebar.title("Document Processing")
+    uploaded_files = st.sidebar.file_uploader("Upload files", accept_multiple_files=True)
 
-if __name__ == '__main__':
+
+    if uploaded_files:
+        text = []
+        for file in uploaded_files:
+            file_extension = os.path.splitext(file.name)[1]
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                temp_file.write(file.read())
+                temp_file_path = temp_file.name
+
+            loader = None
+            if file_extension == ".pdf":
+                loader = PyPDFLoader(temp_file_path)
+            elif file_extension == ".docx" or file_extension == ".doc":
+                loader = Docx2txtLoader(temp_file_path)
+            elif file_extension == ".txt":
+                loader = TextLoader(temp_file_path)
+
+            if loader:
+                text.extend(loader.load())
+                os.remove(temp_file_path)
+
+        text_splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=100, length_function=len)
+        text_chunks = text_splitter.split_documents(text)
+
+        # Create embeddings
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2", 
+                                           model_kwargs={'device': 'cpu'})
+
+        # Create vector store
+        vector_store = FAISS.from_documents(text_chunks, embedding=embeddings)
+
+        # Create the chain object
+        chain = create_conversational_chain(vector_store)
+
+        
+        display_chat_history(chain)
+
+if __name__ == "__main__":
     main()
-
-# def get_response(user_query):
-#     response = "How can I help you today?"
-#     return response
-# #app config
-# st.set_page_config(page_title="Chat with your Document", page_icon="🤖")
-# st.title("Document Tutor")
-
-# #sidebar
-# with st.sidebar:
-    
-#     from io import StringIO
-#     pdf = st.file_uploader("Choose a file",type="pdf")
-#     if pdf is not None:
-#         pdf_reader = PdfReader(pdf)
-#         text=""
-#         for page in pdf_reader.pages:
-#             text+=page.extract_text()
-#         st.write(text)
-
-    
-# if pdf is None or pdf == "":
-#     st.info("Please upload a file")
-# else: 
-    
-#     pdf_reader = PdfReader(pdf)
-#     text=""
-#     for page in pdf_reader.pages:
-#         text+=page.extract_text()
-        
-#     #split into chunks
-#     text_splitter = CharacterTextSplitter(
-#         separator="\n",
-#         chunk_size=1000,
-#         chunk_overlap=200,
-#         length_function=len
-#     )
-#     chunks = text_splitter.split_text(text)
-    
-#     #creating embeddings
-#     embeddings = OpenAIEmbeddings()
-#     knowledge_base = FAISS.from_texts(chunks, embeddings)
-    
-    
-    
-    
-#     user_query  = st.chat_input("Ask question about your PDF")
-#     if user_query is not None and user_query != "":
-#         docs = knowledge_base.similarity_search(user_query)
-        
-#         llm = OpenAI()
-#         chain = load_qa_chain(llm,chain_type = "stuff")
-#         with get_openai_callback() as cb:
-#             response = chain.run(input_documents=docs, question=user_query)
-#             print(cb)
-#         st.write(response)
-        
-
-#     #conversation
-#     for msg in st.session_state.chat_hist:
-#         if isinstance(msg, AIMessage):
-#             with st.chat_message("AI"):
-#                 st.write(msg.content)
-#         else:
-#             with st.chat_message("Human"):
-#                 st.write(msg.content)
-
-
-
-
-
